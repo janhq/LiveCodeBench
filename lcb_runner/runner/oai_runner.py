@@ -13,6 +13,7 @@ from lcb_runner.runner.base_runner import BaseRunner
 
 class OpenAIRunner(BaseRunner):
     client = OpenAI(
+        base_url=os.getenv("OPENAI_API_BASE"),
         api_key=os.getenv("OPENAI_KEY"),
     )
 

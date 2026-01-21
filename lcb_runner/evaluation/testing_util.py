@@ -479,6 +479,9 @@ def run_test(sample, test=None, debug=False, timeout=6):
                 return results, metadata
             except Exception as e:
                 return [-4], {
+                    "inputs": truncatefn(str(in_outs["inputs"])),
+                    "expected": truncatefn(str(in_outs["outputs"])),
+                    "error": str(e) + ". Unable to parse the generated code",
                     "error_code": -4,
                     "error_message": f"Error during testing: {e}",
                 }
@@ -499,6 +502,9 @@ def run_test(sample, test=None, debug=False, timeout=6):
                 return results, metadata
             except Exception as e:
                 return [-4], {
+                    "inputs": truncatefn(str(in_outs["inputs"])),
+                    "expected": truncatefn(str(in_outs["outputs"])),
+                    "error": str(e) + ". Unable to parse the generated code",
                     "error_code": -4,
                     "error_message": f"Error during testing: {e}",
                 }

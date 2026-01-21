@@ -17,13 +17,17 @@ class FuncTimeoutError(TimeoutError):
     pass
 
 
-def generate_queue() -> mp.Queue:
+def generate_queue(use_spawn: bool = True) -> mp.Queue:
     """
     Generates a queue that can be shared amongst processes
+    Args:
+        use_spawn: If True, use 'spawn' context, otherwise use 'fork'
     Returns:
         (multiprocessing.Queue): A queue instance
     """
-    manager = mp.Manager()
+    mode = "spawn" if use_spawn else "fork"
+    ctx = mp.get_context(mode)
+    manager = ctx.Manager()
     return manager.Queue()
 
 
@@ -123,11 +127,12 @@ def run_tasks_in_parallel_iter(
     """
 
     mode = "spawn" if use_spawn else "fork"
+    ctx = mp.get_context(mode)
 
     with ProcessPool(
         max_workers=num_workers,
         max_tasks=0 if max_tasks_per_worker is None else max_tasks_per_worker,
-        context=mp.get_context(mode),
+        context=ctx,
     ) as pool:
         future = pool.map(func, tasks, timeout=timeout_per_task)
 
