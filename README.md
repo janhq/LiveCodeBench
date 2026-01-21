@@ -59,7 +59,9 @@ Since LiveCodeBench is a continuously updated benchmark, we provide different ve
 You can use the `--release_version` flag to specify the dataset version you wish to use. Particularly, you can use the following command to run the evaluation on the `release_v2` dataset. Release version defaults to `release_latest`. Additionally, we have introduced fine-grained release versions such as `v1`, `v2`, `v1_v3`, `v4_v5` for specific versions of the dataset.
 
 ```bash
-python -m lcb_runner.runner.main --model {model_name} --scenario codegeneration --evaluate --release_version release_v2
+export OPENAI_API_BASE=
+
+python -m lcb_runner.runner.main --model gpt-3.5-turbo-0125 --scenario codegeneration --evaluate --release_version release_v6 --use_cache --num_process_evaluate 128 --openai_timeout 100000 --timeout 10 --multiprocess 64 --top_p 0.8 --temperature 0.7  --codegen_n 10 --n 10
 ```
 
 ### Code Generation

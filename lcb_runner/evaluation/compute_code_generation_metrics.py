@@ -11,6 +11,8 @@ import json
 import multiprocessing
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import pickle
+import tempfile
 
 
 import numpy as np
@@ -20,10 +22,21 @@ from lcb_runner.evaluation.testing_util import run_test
 from lcb_runner.evaluation.pass_k_utils import compute_metrics_from_results
 
 
-def _temp_run(sample, generation, debug, result, metadata_list, timeout):
-    res, metadata = run_test(sample, test=generation, debug=debug, timeout=timeout)
-    result.append(res)
-    metadata_list.append(metadata)
+def _temp_run_isolated(sample, generation, debug, timeout, output_file):
+    """Run test in isolated process and write results to file"""
+    try:
+        res, metadata = run_test(sample, test=generation, debug=debug, timeout=timeout)
+        with open(output_file, 'wb') as f:
+            pickle.dump(('success', res, metadata), f)
+    except Exception as e:
+        import traceback
+        with open(output_file, 'wb') as f:
+            pickle.dump(('error', None, {
+                "error": str(e), 
+                "error_code": -5, 
+                "error_message": "RunTestError",
+                "traceback": traceback.format_exc()
+            }), f)
 
 
 def check_correctness(sample, generation, timeout, debug=True):
@@ -31,26 +44,70 @@ def check_correctness(sample, generation, timeout, debug=True):
     The global timeout is to catch some extreme/rare cases not handled by the timeouts
     inside `run_test`"""
 
-    manager = multiprocessing.Manager()
-    result = manager.list()
-    metadata_list = manager.list()
-    p = multiprocessing.Process(
-        target=_temp_run,
-        args=(sample, generation, debug, result, metadata_list, timeout),
-    )
-    p.start()
-    p.join(
-        timeout=(timeout + 1) * len(json.loads(sample["input_output"])["inputs"]) + 5
-    )
-    if p.is_alive():
-        p.kill()
-    if not result:
-        in_outs = json.loads(sample["input_output"])
-        # consider that all tests failed
-        result = [[-1 for i in range(len(in_outs["inputs"]))]]
-        if debug:
-            print(f"global timeout")
-    return result[0], metadata_list[0]
+    # Create a temporary file for IPC
+    with tempfile.NamedTemporaryFile(mode='wb', delete=False, suffix='.pkl') as tmp_file:
+        output_file = tmp_file.name
+    
+    try:
+        # Use fork context which is more stable for this use case
+        ctx = multiprocessing.get_context('fork')
+        
+        p = ctx.Process(
+            target=_temp_run_isolated,
+            args=(sample, generation, debug, timeout, output_file)
+        )
+        p.start()
+        
+        global_timeout = (timeout + 1) * len(json.loads(sample["input_output"])["inputs"]) + 5
+        p.join(timeout=global_timeout)
+        
+        result = None
+        metadata = None
+        timed_out = False
+        
+        if p.is_alive():
+            p.terminate()
+            p.join(timeout=1)
+            if p.is_alive():
+                p.kill()
+                p.join()
+            timed_out = True
+        
+        # Try to read result from file
+        if not timed_out and os.path.exists(output_file) and os.path.getsize(output_file) > 0:
+            try:
+                with open(output_file, 'rb') as f:
+                    status, result, metadata = pickle.load(f)
+                    if status == 'error' and debug:
+                        print(f"Error in test execution: {metadata.get('error')}")
+                        if 'traceback' in metadata:
+                            print(metadata['traceback'])
+            except Exception as e:
+                if debug:
+                    print(f"Failed to read result from file: {e}")
+                timed_out = True
+        else:
+            timed_out = True
+        
+        # Handle timeout or failure cases
+        if result is None or timed_out:
+            in_outs = json.loads(sample["input_output"])
+            # consider that all tests failed
+            result = [-1 for i in range(len(in_outs["inputs"]))]
+            if metadata is None:
+                metadata = {"error": "timeout", "error_code": -1, "error_message": "GlobalTimeout"}
+            if debug:
+                print(f"global timeout or failed to get result")
+        
+        return result, metadata
+    
+    finally:
+        # Clean up temp file
+        try:
+            if os.path.exists(output_file):
+                os.unlink(output_file)
+        except:
+            pass
 
 
 def evaluate_generations_by_problem(args):
@@ -131,8 +188,10 @@ def evaluate_generations(
     ]
 
     with tqdm(total=len(inputs)) as pbar:
+        # Use fork for the outer ProcessPoolExecutor
         with ProcessPoolExecutor(
-            max_workers=1 if debug else num_process_evaluate
+            max_workers=1 if debug else num_process_evaluate,
+            mp_context=multiprocessing.get_context('fork')
         ) as executor:
             futures = {
                 executor.submit(evaluate_generations_by_problem, arg): index

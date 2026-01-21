@@ -80,7 +80,7 @@ def get_args():
         "--use_cache", action="store_true", help="Use cache for generation"
     )
     parser.add_argument(
-        "--cache_batch_size", type=int, default=100, help="Batch size for caching"
+        "--cache_batch_size", type=int, default=1055, help="Batch size for caching"
     )
     parser.add_argument("--debug", action="store_true", help="Debug mode")
     parser.add_argument("--evaluate", action="store_true", help="Evaluate the results")
